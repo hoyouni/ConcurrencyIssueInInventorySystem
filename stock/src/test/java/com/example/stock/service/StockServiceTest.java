@@ -24,6 +24,9 @@ class StockServiceTest {
     private StockService stockService;          // 상품재고 서비스 로직
 
     @Autowired
+    private PessimisticLockStockService pessimisticLockStockService;    // 비관적 락을 이용한 상품재고 서비스 로직
+
+    @Autowired
     private StockRepository stockRepository;    // 상품재고 엔티티 CRUD 인터페이스
 
     /**
@@ -64,14 +67,30 @@ class StockServiceTest {
      * Test 1-2) 재고 감소 로직 동시성 (동시에 여러 건의 요청) 테스트
      * - 특정 상품의 재고가 100개이고 100건의 요청이 동시에 들어온다고 가정한 테스트케이스
      *  . 기대하는 값은 재고가 0 이어야 하지만 실제로 동작한 결과 96건의 재고가 확인됨
-     * - Race Condition 이 발생했기 때문
-     *  . Race Condition 이란 둘 이상의 쓰레드가 공유 데이터(Stock Entity)에 엑세스 할 수 있고
-     *    동시에 변경을 하려고 할 때 발생하는 문제로
-     *    A 쓰레드가 특정 상품의 재고가 100개 있는걸 확인하고 재고를 변경하기 전에
-     *    B 쓰레드가 특정 상품의 재고를 확인하게 됨. A 쓰레드가 재고를 변경하기 전에 먼저 접근해버리는 바람에 B 쓰레드도 재고 100개로 확인함.
-     *    결국 A 쓰레드도 100 - 1 = 99 개로 갱신하고 B 쓰레드도 100 - 1 = 99 개로 갱신 해버림.
+     * - 문제점
+     *  . Race Condition 이 발생했기 때문
+     *   ㄴ Race Condition 이란 둘 이상의 쓰레드가 공유 데이터(Stock Entity)에 엑세스 할 수 있고
+     *     동시에 변경을 하려고 할 때 발생하는 문제로
+     *     A 쓰레드가 특정 상품의 재고가 100개 있는걸 확인하고 재고를 변경하기 전에
+     *     B 쓰레드가 특정 상품의 재고를 확인하게 됨. A 쓰레드가 재고를 변경하기 전에 먼저 접근해버리는 바람에 B 쓰레드도 재고 100개로 확인함.
+     *     결국 A 쓰레드도 100 - 1 = 99 개로 갱신하고 B 쓰레드도 100 - 1 = 99 개로 갱신 해버림.
      * - 해결방안
-     *  . 하나의 쓰레드가 작업이 완료된 이 후에 다른 쓰레드가 데이터에 접근하도록 하면 될 것으로 확인.
+     *   . 방안 1) 자바의 Synchronized 사용하여 쓰레드 작업 제어
+     *    ㄴ 하단 decreaseStockQuantityConcurrencyTestUsingSynchronized 메소드 로직 참고
+     *   . 방안 2) DataBase 를 사용하여 데이터 정합성 제어
+     *    ㄴ 2-1) 비관적 락 (Pessimistic Lock)
+     *     . 실제로 데이터에 Lock 을 걸어서 정합성을 맞추는 방법으로
+     *       독점 락 (exclusive lock) 을 걸게되며 다른 트랜잭션에서는 Lock 이 해제되기전에 데이터를 가져갈 수 없게됨.
+     *       데드락이 걸릴 수 있기 때문에 주의하여 사용하여야 함.
+     *       쓰레드 1 이 락을 걸고 데이터를 점유 하고 있다면 쓰레드 2 는 쓰레드 1의 작업이 끝나고 락을 해제해야 데이터에 접근 가능
+     *    ㄴ 2-2) 낙관적 락 (Optimistic Lock)
+     *     . 실제로 Lock 을 이용하지 않고 버전을 이용함으로써 정합성을 맞추는 방법으로
+     *       먼저 데이터를 읽은 후에 update 를 수행할 때 현재 내가 읽은 버전이 맞는지 확인하며 업데이트 수행,
+     *       내가 읽은 버전에서 수정사항이 생겼을 경우에는 application 에서 다시 읽은 후에 작업을 수행해야함.
+     *    ㄴ 2-3) 네임드 락 (Named Lock)
+     *     . 이름을 가진 metadata locking
+     *       이름을 가진 Lock 을 획득한 후 해제할 때까지 다른 세션은 이 Lock 을 획득할 수 없도록 제어함.
+     *       주의할 점은 트랜잭션이 종료될 때 Lock 이 자동으로 해제되지 않아 별도의 명령어로 해제를 수행해주거나 선점시간이 끝나야 해제됨.
      */
     @Test
     public void decreaseStockQuantityConcurrencyTest() throws InterruptedException {
@@ -107,4 +126,100 @@ class StockServiceTest {
         assertEquals(0, stock.getQuantity());
 
     }
+
+    /**
+     * Test 2-1) 자바 Synchronized 를 활용한 재고 감소 로직 동시성 (동시에 여러 건의 요청) 테스트
+     * - Synchronized 를 통해 한 스레드가 작업이 끝날때 까지 기다리고 그 이후에 다른 스레드가 작업을 하게 하여
+     *   기대하는 값은 재고가 0 이어야 하지만 실제로 동작한 결과 49건의 재고가 확인됨
+     *  . Spring 의 Transactional 어노테이션 동작 방식으로 인한 문제로 Transaction 어노테이션이 내부에서
+     *    begin tran ~~~ commit; 가 같은 과정을 거치게 되는데
+     *    commit 하여 데이터를 갱신하기 전에 다른 쓰레드가 공유 데이터 (Stock Entity) 에 접근 가능하여 발생하는 문제임.
+     *    따라서 Transactional 어노테이션을 삭제하고 진행하면 재고 카운트가 0 이 되어 정상 수행되는 것을 확인.
+     * - 문제점
+     *  . 자바의 Synchronized 는 하나의 프로세스 안에서만 보장됨.
+     *    서버가 1대일 때는 데이터의 접근을 서버 한 대만 해서 괜찮겠지만 서버가 여러 대인 경우 데이터 접근을 여러 서버에서 할 수 있음.
+     *    예를 들어
+     *    A 서버에서 10 : 00 에 재고 감소 로직을 수행하고 10 : 05 에 재고 감소 로직을 종료 한다고 가정하면
+     *    B 서버에서 10 : 00 ~ 10 : 05 사이에 갱신되지 않은 정보에 대한 접근이 가능하고 그렇게 되면 다시 Race Condition 이 발생하게 됨.
+     *    실제 실무 환경에서는 거의 두 대 이상의 서버를 사용하기 때문에 Synchronized 는 잘 사용하지 않음.
+     */
+    @Test
+    public void decreaseStockQuantityConcurrencyTestUsingSynchronized() throws InterruptedException {
+        // 동시에 여러개의 요청을 보내야 하기 때문에 멀티쓰레드 사용하여 100개의 요청을 보낼 것
+        int threadCount = 100;
+
+        // 멀티쓰레드 사용을 위한 ExecutorService 사용 (비동기로 실행하는 작업을 단순화 하여 사용할 수 있게 도와주는 자바 API)
+        ExecutorService executorService = Executors.newFixedThreadPool(32);
+
+        /*
+         * 100 건의 요청이 모두 끝날때 까지 기다려야 하므로 CountDownLatch 사용
+         * CountDownLatch : 다른 쓰레드에서 수행중인 작업이 완료될 때 까지 대기할 수 있도록 도와주는 클래스
+         */
+        CountDownLatch latch = new CountDownLatch(threadCount);
+
+        // 100 건 요청 수행 로직
+        for(int i = 0; i < threadCount; i++) {
+            executorService.submit(() -> {
+                try {
+                    stockService.decreaseUsingSynchronized(1L, 1L);
+                } finally {
+                    latch.countDown();
+                }
+            });
+        }
+
+        latch.await();
+
+        // 상품 재고 조회
+        Stock stock = stockRepository.findById(1L).orElseThrow();
+
+        // 실제 데이터 확인 (왼쪽 파라미터 : 기대값 0 / 오른쪽 파라미터 : 실제값 ??)
+        assertEquals(0, stock.getQuantity());
+    }
+
+    /**
+     * Test 2-2-1) Database 비관적 락 (Pessimistic Lock) 을 활용한 재고 감소 로직 동시성 (동시에 여러 건의 요청) 테스트
+     * - 테스트 결과 기대하는 값인 재고 0 과 실제 데이터인 재고 0 이 일치하는 것을 확인
+     *  . 비관적 락 (Pessimistic Lock) 의 장점
+     *   ㄴ 충돌이 빈번하게 일어난다면 낙관적 락 (Optimistic Lock) 보다 성능이 좋을 수 있음.
+     *   ㄴ Lock 을 통해 Update 를 제어하기 때문에 데이터 정합성을 보장함.
+     *  . 비관적 락 (Pessimistic Lock) 의 단점
+     *   ㄴ 별도의 Lock 을 잡기 때문에 성능 감소 이슈가 생길 수 있음.
+     *   ㄴ Dead Lock 주의 필요
+     */
+    @Test
+    public void decreaseStockQuantityConcurrencyTestUsingPessimisticLock() throws InterruptedException {
+        // 동시에 여러개의 요청을 보내야 하기 때문에 멀티쓰레드 사용하여 100개의 요청을 보낼 것
+        int threadCount = 100;
+
+        // 멀티쓰레드 사용을 위한 ExecutorService 사용 (비동기로 실행하는 작업을 단순화 하여 사용할 수 있게 도와주는 자바 API)
+        ExecutorService executorService = Executors.newFixedThreadPool(32);
+
+        /*
+         * 100 건의 요청이 모두 끝날때 까지 기다려야 하므로 CountDownLatch 사용
+         * CountDownLatch : 다른 쓰레드에서 수행중인 작업이 완료될 때 까지 대기할 수 있도록 도와주는 클래스
+         */
+        CountDownLatch latch = new CountDownLatch(threadCount);
+
+        // 100 건 요청 수행 로직
+        for(int i = 0; i < threadCount; i++) {
+            executorService.submit(() -> {
+                try {
+                    pessimisticLockStockService.decrease(1L, 1L);
+                } finally {
+                    latch.countDown();
+                }
+            });
+        }
+
+        latch.await();
+
+        // 상품 재고 조회
+        Stock stock = stockRepository.findById(1L).orElseThrow();
+
+        // 실제 데이터 확인 (왼쪽 파라미터 : 기대값 0 / 오른쪽 파라미터 : 실제값 ??)
+        assertEquals(0, stock.getQuantity());
+    }
+
+
 }
