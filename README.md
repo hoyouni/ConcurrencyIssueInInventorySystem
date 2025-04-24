@@ -2,7 +2,7 @@
  - 목적
    1)  간단한 재고 시스템 로직 개발을 통해 동시성 이슈에 대한 내용을 이해하고 이를 해결하고자 함
    2)  Database Lock 기법과 Redis 대한 개념과 사용 이유에 대해 학습하며 활용 방안을 습득하고자 함
-    ㄴ 비관적 락 (Pessimistic Lock) / 낙관적 락 (Optimistic Lock) / 네임드 락 (Named Lock) 에 대한 이해
+    - 비관적 락 (Pessimistic Lock) / 낙관적 락 (Optimistic Lock) / 네임드 락 (Named Lock) 에 대한 이해
       
  - 요구사항
    1)  특정 상품의 재고가 100개라고 가정
