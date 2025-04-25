@@ -77,6 +77,7 @@ class StockServiceTest {
      * - 해결방안
      *   . 방안 1) 자바의 Synchronized 사용하여 쓰레드 작업 제어
      *    ㄴ 하단 decreaseStockQuantityConcurrencyTestUsingSynchronized 메소드 로직 참고
+     *
      *   . 방안 2) DataBase 를 사용하여 데이터 정합성 제어
      *    ㄴ 2-1) 비관적 락 (Pessimistic Lock)
      *     . 실제로 데이터에 Lock 을 걸어서 정합성을 맞추는 방법으로
@@ -97,6 +98,28 @@ class StockServiceTest {
      *       주의할 점은 트랜잭션이 종료될 때 Lock 이 자동으로 해제되지 않아 별도의 명령어로 해제를 수행해주거나 선점시간이 끝나야 해제됨.
      *       이전에 비관적 락 (Pessimistic Lock) 이 공유 데이터 (Stock) 에 Lock 을 걸었다면 네임드 락은 별도의 공간에 Lock 을 걸어줌.
      *       주로 분산락을 구현할 때 사용
+     *
+     *   . 방안 3) Redis 를 활용하여 동시성 문제 해결
+     *    ㄴ 분산 락을 구현할 때 사용하는 대표적인 라이브러리
+     *     . Lettuce
+     *      ㄴ setnx 명령어를 활용하여 분산 락 구현
+     *        : key 와 value 를 set 할 때 기존의 값이 없을 때만 set 하는 명령어
+     *          setnx 를 활용하는 방식은 spin Lock 방식으로 retry 로직 개발자가 작성해야함.
+     *          spin Lock : Lock 을 획득하려는 쓰레드가 Lock 을 사용할 수 있는지 반복적으로 확인하면서 Lock 획득을 시도하는 방식
+     *                      예를 들어 쓰레드 1 이 key 가 1 인 데이터를 Redis 에 Set 하려고 할 때 최초 요청 시 Redis 에 데이터가 없기 때문에
+     *                      정상적으로 Set 하게 됨.
+     *                      그 후에 쓰레드 2 가 똑같이 key 가 1 인 데이터를 Set 하려고 할 때 Redis 에는 이미 key 가 1 인
+     *                      데이터가 존재하기 때문에 실패를 리턴하게 되고 쓰레드 2 는 일정 시간 후에 Lock 획득을 위해 재시도 하게 되는 방식
+     *
+     *     . Redisson
+     *      ㄴ pub-sub 기반으로 Lock 구현
+     *        : 채널 하나를 만들고 Lock 을 점유 중인 쓰레드가 Lock 획득 하려고 대기 중인 쓰레드에게
+     *          해제를 알려주면 안내를 받은 쓰레드가 Lock 획득 시도를 하는 방식으로
+     *          Lettuce 와 다르게 대부분의 경우에 retry 로직을 작성하지 않아도 됨.
+     *          예를 들어 채널이 하나가 있고 쓰레드 1 이 먼저 Lock 을 점유를 하고 있는 상황에서 쓰레드 2 가 점유를 시도 하려고 하면
+     *          쓰레드 1 이 Lock 을 해제할 때 끝났다는 메시지를 채널로 보내게 됨. 그 후 채널은 쓰레드 2 에게 락 획득 시도 안내를 해주며
+     *          쓰레드 2 는 그 때 락 획득을 시도하게 됨.
+     *
      */
     @Test
     public void decreaseStockQuantityConcurrencyTest() throws InterruptedException {
