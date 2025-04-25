@@ -127,6 +127,19 @@ class StockServiceTest {
      *      ㄴ pub-sub 방식이라 Redis 의 부하가 Lettuce 에 비해 덜 들어감
      *      ㄴ 별도의 라이브러리를 사용해야하며 재시도가 필요한 Lock 의 경우에 Redisson 사용 권장
      *
+     * - 결론
+     *  . Database (MySQL) 을 활용한 동시성 제어 방식
+     *   ㄴ 이미 Mysql 을 사용하고 있다면 별도의 비용없이 사용 가능하다.
+     *     어느 정도의 트래픽까지는 문제없이 활용 가능하다.
+     *     Redis 보다는 성능이 좋지않다.
+     *
+     *  . Redis 를 활용한 동시성 제어 방식
+     *   ㄴ 활용중인 Redis 가 없다면 별도의 구축비용과 인프라 관리비용이 발생한다.
+     *      Mysql 보다 성능이 좋다.
+     *
+     *  . 비용적 여유가 없거나 MySQL 로 처리가 가능한 트래픽이라면 MySQL 을 활용하고
+     *    비용적 여유가 있거나 MySQL 로 처리가 불가능한 트래픽이라면 Redis 를 도입하는 것이 좋다.
+     *
      */
     @Test
     public void decreaseStockQuantityConcurrencyTest() throws InterruptedException {
