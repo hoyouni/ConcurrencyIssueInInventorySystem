@@ -1,9 +1,6 @@
 package com.example.stock.domain;
 
-import jakarta.persistence.Entity;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
+import jakarta.persistence.*;
 
 /**
  * 상품재고 엔티티
@@ -17,6 +14,9 @@ public class Stock {
     private Long productId;     // 상품 아이디
 
     private Long quantity;      // 상품 수량
+
+    @Version
+    private Long version;       // 낙관적 락 (Optimistic Lock) 을 사용하기 위한 버전
 
     public Stock() {
 
