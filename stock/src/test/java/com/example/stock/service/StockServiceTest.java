@@ -110,6 +110,8 @@ class StockServiceTest {
      *                      정상적으로 Set 하게 됨.
      *                      그 후에 쓰레드 2 가 똑같이 key 가 1 인 데이터를 Set 하려고 할 때 Redis 에는 이미 key 가 1 인
      *                      데이터가 존재하기 때문에 실패를 리턴하게 되고 쓰레드 2 는 일정 시간 후에 Lock 획득을 위해 재시도 하게 되는 방식
+     *      ㄴ 구현이 간단하며 Spring data redis 를 주입해주면 Lettuce 가 기본이기 때문에 별도 라이브러리 사용하지 않아도 됨.
+     *      ㄴ 동시에 많은 쓰레드가 Lock 점유 중이라면 Redis 에 부하가 가기 때문에 재시도가 필요하지 않은 Lock 의 경우에 Lettuce 사용 권장
      *
      *     . Redisson
      *      ㄴ pub-sub 기반으로 Lock 구현
@@ -121,6 +123,9 @@ class StockServiceTest {
      *          쓰레드 2 는 그 때 락 획득을 시도하게 됨.
      *          Lettuce 는 지속해서 Lock 획득을 시도하는 반면 Redisson 은 Lock 해제가 되었을 때 한 번 혹은 몇 번만 시도를 하기 때문에
      *          Redis 의 부하를 보다 줄여줌
+     *      ㄴ Lock 획득 재시도를 기본적으로 제공
+     *      ㄴ pub-sub 방식이라 Redis 의 부하가 Lettuce 에 비해 덜 들어감
+     *      ㄴ 별도의 라이브러리를 사용해야하며 재시도가 필요한 Lock 의 경우에 Redisson 사용 권장
      *
      */
     @Test
